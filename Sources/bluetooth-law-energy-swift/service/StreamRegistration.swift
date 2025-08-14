@@ -62,6 +62,9 @@ extension BluetoothLEManager {
         @MainActor
         func beforeDeinit(){
             discoveredPeripherals = []
+            #if DEBUG
+            print("Peripherals released")
+            #endif
         }
         
         
