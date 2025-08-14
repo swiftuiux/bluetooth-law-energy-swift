@@ -63,10 +63,6 @@ public final class BluetoothLEManager: NSObject, ObservableObject, @preconcurren
         logger.log("BluetoothManager deinitialized", level: .debug)
     }
     
-    @MainActor
-    func beforeDeinit(){
-        stream.beforeDeinit()    
-    }
     
     // MARK: - API
     
@@ -156,6 +152,11 @@ public final class BluetoothLEManager: NSObject, ObservableObject, @preconcurren
                 centralManager.cancelPeripheralConnection(peripheral)
             }
         }
+    }
+    
+    @MainActor
+    public func beforeDeinit(){
+        stream.beforeDeinit()
     }
     
     // MARK: - Private Methods
