@@ -42,7 +42,7 @@ extension BluetoothLEManager {
         
         deinit {
             logger.log("Stream factory deinitialized", level: .debug)
-        }        
+        }
         
         // MARK: - API
         
@@ -52,7 +52,6 @@ extension BluetoothLEManager {
         }
         
         /// Push updated peripherals to all subscribers.
-        @MainActor
         public func updatePeripherals(_ peripherals: [CBPeripheral]) async {
             await service.notifySubscribers(peripherals)
         }
