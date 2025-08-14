@@ -213,7 +213,9 @@ public final class BluetoothLEManager: NSObject, ObservableObject, @preconcurren
             .sink { [weak self] state, subscriberCount in
                 guard let self = self else { return }
                 let state = self.checkForScan(state, subscriberCount)
-                self.bleState.send(state)
+                Task { @MainActor in
+                                self.bleState.send(state)
+                            }
             }
             .store(in: &cancellables)
     }
