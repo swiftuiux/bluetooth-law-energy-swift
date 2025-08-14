@@ -67,7 +67,8 @@ extension BluetoothLEManager {
         public func register(_ continuation: PeripheralsContinuation) async -> UUID {
             let id = UUID()
             subscribers[id] = continuation
-            continuation.yield(await discoveredPeripherals)
+            let current = await MainActor.run { discoveredPeripherals }
+            continuation.yield(current)
             subscriberCountSubject.send(count)
             return id
         }
@@ -85,7 +86,9 @@ extension BluetoothLEManager {
         /// - Parameter peripherals: The updated list of discovered `CBPeripheral` instances.
         @MainActor
         public func notifySubscribers(_ peripherals: [CBPeripheral]) async {
-            discoveredPeripherals = peripherals
+            await MainActor.run {
+                discoveredPeripherals = peripherals
+            }
             for continuation in await subscribers.values {
                 continuation.yield(peripherals)
             }
