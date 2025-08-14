@@ -52,6 +52,11 @@ extension BluetoothLEManager {
             logger.log("Stream factory deinitialized", level: .debug)
         }
         
+        @MainActor
+        func beforeDeinit(){
+            service.beforeDeinit()
+        }
+        
         // MARK: - API
         
         /// Provides an asynchronous stream of discovered peripherals using the service layer.

@@ -57,8 +57,13 @@ extension BluetoothLEManager {
             subscribers.forEach { (key, value) in
                 value.finish()
             }
+        }
+        
+        @MainActor
+        func beforeDeinit(){
             discoveredPeripherals = []
         }
+        
         
         /// Registers a new subscriber and immediately provides the current list of peripherals.
         ///
