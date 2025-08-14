@@ -35,6 +35,8 @@ public extension BluetoothLEManager {
         
         /// Error when an operation times out.
         case timeoutServices
+        
+        case noServices(String)
 
         /// Error encountered while disconnecting.
         case disconnection(CBPeripheral, Error?)
@@ -42,6 +44,8 @@ public extension BluetoothLEManager {
         /// Text description
         public var errorDescription: String? {
             switch self {
+            case .noServices(let name):
+                return NSLocalizedString("No services found for \(name).", comment: "No Services Error")
             case .discoveringServices(let message, let error):
                 if let error = error {
                     return NSLocalizedString("Error discovering services for \(message): \(error.localizedDescription)", comment: "Discovering Services Error")
