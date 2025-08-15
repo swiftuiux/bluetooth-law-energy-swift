@@ -47,22 +47,17 @@ public final class BluetoothLEManager: NSObject, ObservableObject, IBluetoothLEM
     private let logger: ILogger
 
     /// Initializes the BluetoothLEManager with a logger.
-    public init(logger: ILogger?, queue : DispatchQueue? = nil) {
-
+    public init(logger: ILogger?, queue: DispatchQueue? = nil) {
         let logger = logger ?? AppleLogger(subsystem: "BluetoothLEManager", category: "Bluetooth")
         self.logger = logger
         stream = StreamFactory(logger: logger)
         delegateHandler = Delegate(logger: logger)
 
-        // Keep a handle to the central's queue (nil => Main queue).
         self.bleQueue = queue ?? .main
-        centralManager = CBCentralManager(delegate: delegateHandler, queue: queue)
+        self.centralManager = CBCentralManager(delegate: delegateHandler, queue: bleQueue)
 
         super.init()
-
         setupSubscriptions()
-
-        logger.log("BluetoothManager initialized on \(Date())", level: .debug)
     }
 
     /// Deinitializes the BluetoothLEManager.
@@ -76,10 +71,9 @@ public final class BluetoothLEManager: NSObject, ObservableObject, IBluetoothLEM
 
     // MARK: - Queue helper
 
-    /// Dispatch a block onto the central's queue.
     @inline(__always)
     private func onBLE(_ block: @escaping () -> Void) {
-        bleQueue.async(execute: block)
+        bleQueue.async(execute: block) // always hop; simpler & safe
     }
 
     // MARK: - API
