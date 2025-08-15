@@ -13,25 +13,28 @@ import retry_policy_service
 @available(macOS 12, iOS 15, tvOS 15.0, watchOS 8.0, *)
 public final class BluetoothLEManager: NSObject, ObservableObject, @preconcurrency IBluetoothLEManager {
 
-    /// A subject that publishes the BLE state changes to the main actor.
+    /// Publishes BLE state changes to the main actor.
     @MainActor
     public let bleState: CurrentValueSubject<BLEState, Never> = .init(.init())
 
-    /// Internal state variables
+    /// Internal state flags.
     private var isAuthorized = false
     private var isPowered = false
     private var isScanning = false
 
-    /// Type aliases for publishers
+    /// Type aliases for publishers.
     private typealias StatePublisher = AnyPublisher<CBManagerState, Never>
     private typealias PeripheralPublisher = AnyPublisher<[CBPeripheral], Never>
 
-    /// Publishers for state and peripheral updates
+    /// Publishers for state and peripheral updates.
     private var getStatePublisher: StatePublisher { delegateHandler.statePublisher }
     private var getPeripheralPublisher: PeripheralPublisher { delegateHandler.peripheralPublisher }
 
-    /// Internal types and instances
+    /// CoreBluetooth central manager.
     private let centralManager: CBCentralManager
+    /// The queue on which the central delivers callbacks; we also dispatch central calls onto this queue.
+    private let bleQueue: DispatchQueue
+
     @MainActor
     private let cachedServices = CacheServices()
 
@@ -50,6 +53,9 @@ public final class BluetoothLEManager: NSObject, ObservableObject, @preconcurren
         self.logger = logger
         stream = StreamFactory(logger: logger)
         delegateHandler = Delegate(logger: logger)
+
+        // Keep a handle to the central's queue (nil => Main queue).
+        self.bleQueue = queue ?? .main
         centralManager = CBCentralManager(delegate: delegateHandler, queue: queue)
 
         super.init()
@@ -61,9 +67,20 @@ public final class BluetoothLEManager: NSObject, ObservableObject, @preconcurren
 
     /// Deinitializes the BluetoothLEManager.
     deinit {
+        onBLE { [centralManager] in
+            centralManager.stopScan()
+            centralManager.delegate = nil
+        }
         logger.log("BluetoothManager deinitialized", level: .debug)
     }
 
+    // MARK: - Queue helper
+
+    /// Dispatch a block onto the central's queue.
+    @inline(__always)
+    private func onBLE(_ block: @escaping () -> Void) {
+        bleQueue.async(execute: block)
+    }
 
     // MARK: - API
 
@@ -77,23 +94,21 @@ public final class BluetoothLEManager: NSObject, ObservableObject, @preconcurren
 
     /// Discovers services for a given peripheral, with optional caching and optional disconnection.
     ///
-    /// Apple’s documentation specifies that all Core Bluetooth interactions should be performed on the main thread to maintain thread safety and proper synchronization of Bluetooth events. This includes interactions with `CBCentralManager`, such as connecting and disconnecting peripherals.
-    ///
-    /// - Parameters:
-    ///   - peripheral: The `CBPeripheral` instance to fetch services for.
-    ///   - cache: A Boolean value indicating whether to use cached data. Defaults to `true`.
-    ///   - disconnect: A Boolean value indicating whether to disconnect from the peripheral after fetching services. Defaults to `true`.
-    /// - Returns: An array of `CBService` instances.
-    /// - Throws: An error if the services could not be fetched.
+    /// Note: public API stays on @MainActor; CoreBluetooth calls are dispatched to the central's queue.
     @MainActor
     public func discoverServices(for peripheral: CBPeripheral, from cache: Bool = true, disconnect: Bool = true) async throws -> [CBService] {
+        
+        try Task.checkCancellation() // ensure early exit if cancelled
         defer {
             if disconnect {
-                centralManager.cancelPeripheralConnection(peripheral)
+                // Ensure cancellation runs on the central's queue.
+                onBLE { [centralManager] in
+                    centralManager.cancelPeripheralConnection(peripheral)
+                }
             }
         }
 
-         ///Check the cache before attempting to fetch services
+        // Check the cache before attempting to fetch services.
         if cache, let services = cachedServices.fetch(for: peripheral) {
             return services
         }
@@ -103,55 +118,73 @@ public final class BluetoothLEManager: NSObject, ObservableObject, @preconcurren
                 return try await attemptFetchServices(for: peripheral, cache: cache)
             } catch { }
 
-            try? await Task.sleep(nanoseconds: delay)
+            try await Task.sleep(nanoseconds: delay)
 
             if cache, let services = cachedServices.fetch(for: peripheral) {
                 return services
             }
         }
 
-        /// Final attempt to fetch services if retries fail
+        // Final attempt to fetch services if retries fail
         return try await attemptFetchServices(for: peripheral, cache: cache)
     }
 
     /// Connects to a specific peripheral.
-    /// Always use the same CBCentralManager instance to manage connections and disconnections for a peripheral to avoid errors and ensure correct behavior
-    /// - Parameter peripheral: The `CBPeripheral` instance to connect to.
-    /// - Throws: `BluetoothLEManager.Errors` if the connection fails.
+    /// Contract:
+    ///  - Public API is @MainActor for UI-facing consistency.
+    ///  - We *register* an async expectation with `delegateHandler` first,
+    ///    then invoke CoreBluetooth on the central's queue via `onBLE`.
+    ///  - Cancellation is checked early and again right before the central call,
+    ///    so the operation can exit cleanly if the task was cancelled.
     @MainActor
     public func connect(to peripheral: CBPeripheral) async throws {
-        guard peripheral.isNotConnected else {
-            throw Errors.connected(peripheral)
-        }
-
+        guard peripheral.isNotConnected else { throw Errors.connected(peripheral) }
         try Task.checkCancellation()
 
         return try await withCheckedThrowingContinuation { continuation in
             Task {
                 let id = peripheral.getId
                 let name = peripheral.getName
-                try await delegateHandler.connect(to: id, name: name, with: continuation)
-                centralManager.connect(peripheral, options: nil)
+                do {
+                    try await delegateHandler.connect(to: id, name: name, with: continuation)
+                    try Task.checkCancellation() // ensure early exit if cancelled
+                    onBLE { [weak self] in
+                        guard let self else { return }
+                        self.centralManager.connect(peripheral, options: nil)
+                    }
+                } catch {
+                    continuation.resume(throwing: error)
+                }
             }
         }
     }
 
     /// Disconnects from a specific peripheral.
-    /// Always use the same CBCentralManager instance to manage connections and disconnections for a peripheral to avoid errors and ensure correct behavior
-    /// - Parameter peripheral: The `CBPeripheral` instance to connect to.
-    /// - Throws: `BluetoothLEManager.Errors` if the connection fails.
+    /// Contract:
+    ///  - Public API is @MainActor for UI-facing consistency.
+    ///  - We *register* an async expectation with `delegateHandler` first,
+    ///    then invoke CoreBluetooth on the central's queue via `onBLE`.
+    ///  - Cancellation is checked early and again right before the central call,
+    ///    so the operation can exit cleanly if the task was cancelled.
     @MainActor
     public func disconnect(from peripheral: CBPeripheral) async throws {
-        guard peripheral.isConnected else {
-            throw Errors.notConnected(peripheral.getName)
-        }
-
+        guard peripheral.isConnected else { throw Errors.notConnected(peripheral.getName) }
+        try Task.checkCancellation()
+        
         return try await withCheckedThrowingContinuation { continuation in
             Task {
                 let id = peripheral.getId
                 let name = peripheral.getName
-                try await delegateHandler.disconnect(to: id, name: name, with: continuation)
-                centralManager.cancelPeripheralConnection(peripheral)
+                do {
+                    try await delegateHandler.disconnect(to: id, name: name, with: continuation)
+                    try Task.checkCancellation() // ensure early exit if cancelled
+                    onBLE { [weak self] in
+                        guard let self else { return }
+                        self.centralManager.cancelPeripheralConnection(peripheral)
+                    }
+                } catch {
+                    continuation.resume(throwing: error)
+                }
             }
         }
     }
@@ -159,27 +192,14 @@ public final class BluetoothLEManager: NSObject, ObservableObject, @preconcurren
     // MARK: - Private Methods
 
     /// Attempts to connect to the given peripheral and fetch its services.
-    ///
-    /// - Parameters:
-    ///   - peripheral: The `CBPeripheral` to connect to.
-    ///   - cache: A Boolean value indicating whether to use cached services if available.
-    ///
-    /// - Returns: An array of `CBService` objects representing the services of the peripheral.
-    ///
-    /// - Throws: An error if the connection or service discovery fails.
     @MainActor
     private func attemptFetchServices(for peripheral: CBPeripheral, cache: Bool) async throws -> [CBService] {
+        try Task.checkCancellation() // ensure early exit if cancelled
         try await connect(to: peripheral)
         return try await discover(for: peripheral, cache: cache)
     }
 
     /// Discovers services for a connected peripheral.
-    ///
-    /// - Parameters:
-    ///   - peripheral: The `CBPeripheral` instance to discover services for.
-    ///   - cache: A Boolean value indicating whether to cache the services.
-    /// - Returns: An array of `CBService` instances.
-    /// - Throws: An error if the services could not be discovered.
     @MainActor
     private func discover(for peripheral: CBPeripheral, cache: Bool) async throws -> [CBService] {
         defer { peripheral.delegate = nil }
@@ -213,16 +233,16 @@ public final class BluetoothLEManager: NSObject, ObservableObject, @preconcurren
         Publishers.CombineLatest(getStatePublisher, stream.subscriberCountPublisher)
             .receiveOnMainAndEraseToAnyPublisher()
             .sink { [weak self] state, subscriberCount in
-                guard let self = self else { return }
-                    let state = self.checkForScan(state, subscriberCount)
-                    self.bleState.send(state)
+                Task { @MainActor in
+                    guard let self = self else { return }
+                    let s = self.checkForScan(state, subscriberCount)
+                    self.bleState.send(s)
+                }
             }
             .store(in: &cancellables)
     }
 
     /// Handles changes in discovered peripherals.
-    ///
-    /// - Parameter peripherals: An array of discovered `CBPeripheral` instances.
     private func handlePeripheralChange(_ peripherals: [CBPeripheral]) async {
        await stream.updatePeripherals(peripherals)
     }
@@ -234,12 +254,7 @@ public final class BluetoothLEManager: NSObject, ObservableObject, @preconcurren
         return isPowered && isAuthorized
     }
 
-    /// Checks if scanning should start or stop based on the state and subscriber count.
-    ///
-    /// - Parameters:
-    ///   - state: The current `CBManagerState`.
-    ///   - subscriberCount: The number of subscribers.
-    /// - Returns: The updated `BLEState`.
+    /// Starts or stops scanning based on the state and subscriber count.
     private func checkForScan(_ state: CBManagerState, _ subscriberCount: Int) -> BLEState {
         if !checkIfBluetoothReady {
             stopScanning()
@@ -259,13 +274,17 @@ public final class BluetoothLEManager: NSObject, ObservableObject, @preconcurren
         )
     }
 
-    /// Starts scanning for peripherals.
+    /// Starts scanning for peripherals (dispatched to the central's queue).
     private func startScanning() {
-        centralManager.scanForPeripherals(withServices: nil, options: nil)
+        onBLE { [centralManager] in
+            centralManager.scanForPeripherals(withServices: nil, options: nil)
+        }
     }
 
-    /// Stops scanning for peripherals.
+    /// Stops scanning for peripherals (dispatched to the central's queue).
     private func stopScanning() {
-        centralManager.stopScan()
+        onBLE { [centralManager] in
+            centralManager.stopScan()
+        }
     }
 }
