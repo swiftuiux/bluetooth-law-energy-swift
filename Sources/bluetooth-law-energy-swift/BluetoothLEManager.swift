@@ -11,7 +11,7 @@ import retry_policy_service
 
 /// Manages Bluetooth Low Energy (BLE) interactions using Combine and CoreBluetooth.
 @available(macOS 12, iOS 15, tvOS 15.0, watchOS 8.0, *)
-public final class BluetoothLEManager: NSObject, ObservableObject, @preconcurrency IBluetoothLEManager {
+public final class BluetoothLEManager: NSObject, ObservableObject, IBluetoothLEManager {
 
     /// Publishes BLE state changes to the main actor.
     @MainActor
