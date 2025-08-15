@@ -47,13 +47,15 @@ public final class BluetoothLEManager: NSObject, ObservableObject, IBluetoothLEM
     private let logger: ILogger
 
     /// Initializes the BluetoothLEManager with a logger.
-    public init(logger: ILogger?, queue: DispatchQueue? = nil) {
+    /// Always uses the main queue for CoreBluetooth to ensure thread safety and consistent behavior.
+    public init(logger: ILogger?) {
         let logger = logger ?? AppleLogger(subsystem: "BluetoothLEManager", category: "Bluetooth")
         self.logger = logger
         stream = StreamFactory(logger: logger)
         delegateHandler = Delegate(logger: logger)
 
-        self.bleQueue = queue ?? .main
+        // Always main queue — CoreBluetooth interactions are guaranteed to run here.
+        self.bleQueue = .main
         self.centralManager = CBCentralManager(delegate: delegateHandler, queue: bleQueue)
 
         super.init()
