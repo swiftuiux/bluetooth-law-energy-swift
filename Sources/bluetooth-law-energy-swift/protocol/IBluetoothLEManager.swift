@@ -17,8 +17,9 @@ public protocol IBluetoothLEManager {
     /// A subject that publishes the BLE state changes.
     @MainActor
     var bleState: CurrentValueSubject<BLEState, Never> { get }
-
+    
     /// Provides an asynchronous stream of discovered Bluetooth peripherals.
+    @MainActor
     var peripheralsStream: AsyncStream<[CBPeripheral]> { get async }
 
     /// Discovers services for a given peripheral, with optional caching and disconnection.

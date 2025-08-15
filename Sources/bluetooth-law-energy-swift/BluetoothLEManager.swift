@@ -74,6 +74,7 @@ public final class BluetoothLEManager: NSObject, ObservableObject, IBluetoothLEM
     // MARK: - API
     
     /// Provides a stream of discovered peripherals.
+    @MainActor
     public var peripheralsStream: AsyncStream<[CBPeripheral]> {
         get async{
             await stream.peripheralsStream()
