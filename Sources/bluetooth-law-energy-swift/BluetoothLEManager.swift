@@ -229,11 +229,9 @@ public final class BluetoothLEManager: NSObject, ObservableObject, IBluetoothLEM
         Publishers.CombineLatest(getStatePublisher, stream.subscriberCountPublisher)
             .receiveOnMainAndEraseToAnyPublisher()
             .sink { [weak self] state, subscriberCount in
-                Task { @MainActor in
                     guard let self = self else { return }
                     let s = self.checkForScan(state, subscriberCount)
                     self.bleState.send(s)
-                }
             }
             .store(in: &cancellables)
     }
