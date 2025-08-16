@@ -39,7 +39,6 @@ public final class BluetoothLEManager: NSObject, ObservableObject, IBluetoothLEM
     private let cachedServices = CacheServices()
 
     private typealias Delegate = BluetoothDelegate
-    private let state = BluetoothLEManager.State()
     private let stream : StreamFactory
     private let delegateHandler: Delegate
     private var cancellables: Set<AnyCancellable> = []
@@ -220,8 +219,9 @@ public final class BluetoothLEManager: NSObject, ObservableObject, IBluetoothLEM
         getPeripheralPublisher
             .sink { [weak self] peripherals in
                 guard let self = self else { return }
+                let stream = self.stream
                 Task {
-                    await self.handlePeripheralChange(peripherals)
+                    await stream.updatePeripherals(peripherals)
                 }
             }
             .store(in: &cancellables)
@@ -229,16 +229,14 @@ public final class BluetoothLEManager: NSObject, ObservableObject, IBluetoothLEM
         Publishers.CombineLatest(getStatePublisher, stream.subscriberCountPublisher)
             .receiveOnMainAndEraseToAnyPublisher()
             .sink { [weak self] state, subscriberCount in
-                    guard let self = self else { return }
-                    let s = self.checkForScan(state, subscriberCount)
-                    self.bleState.send(s)
+                guard let self = self else { return }
+                let result = self.checkForScan(state, subscriberCount)
+                let bleState = self.bleState
+                Task { @MainActor in
+                    bleState.send(result)
+                }
             }
             .store(in: &cancellables)
-    }
-
-    /// Handles changes in discovered peripherals.
-    private func handlePeripheralChange(_ peripherals: [CBPeripheral]) async {
-       await stream.updatePeripherals(peripherals)
     }
 
     /// Checks if Bluetooth is ready (powered on and authorized).
