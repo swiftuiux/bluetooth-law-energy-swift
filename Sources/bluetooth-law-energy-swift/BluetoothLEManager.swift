@@ -113,6 +113,7 @@ public final class BluetoothLEManager: NSObject, ObservableObject, IBluetoothLEM
                 return try await attemptFetchServices(for: peripheral, cache: cache)
             } catch { }
 
+            try Task.checkCancellation()
             try await Task.sleep(nanoseconds: delay)
 
             if cache, let services = cachedServices.fetch(for: peripheral) {
