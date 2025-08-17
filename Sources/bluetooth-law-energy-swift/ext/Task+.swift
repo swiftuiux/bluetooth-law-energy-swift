@@ -9,20 +9,18 @@ import Foundation
 
 
 /// Extends Task to provide a sleep function when used in an async context.
-@available(iOS, introduced: 15.0)
-@available(macOS, introduced: 12.0)
-@available(watchOS, introduced: 8.0)
-@available(tvOS, introduced: 15.0)
+@available(iOS 15, *)
+@available(macOS 12, *)
+@available(watchOS 8, *)
+@available(tvOS 15, *)
 extension Task where Success == Never, Failure == Never {
-    
-    /// Suspends the current task for the given time interval.
-    ///
-    /// - Parameter duration: The time interval to sleep for.
-    static func sleep(for duration: Double) async throws {
-        if #available(iOS 16, macOS 13, tvOS 16.0, watchOS 9.0, *) {
-            try await Task.sleep(for: .seconds(duration))
-        } else {
-            try await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
-        }
+
+    @available(iOS, deprecated: 16.0, message: "Use Task.sleep(for: .seconds(_)) on iOS 16+")
+    @available(macOS, deprecated: 13.0, message: "Use Task.sleep(for: .seconds(_)) on macOS 13+")
+    @available(watchOS, deprecated: 9.0, message: "Use Task.sleep(for: .seconds(_)) on watchOS 9+")
+    @available(tvOS, deprecated: 16.0, message: "Use Task.sleep(for: .seconds(_)) on tvOS 16+")
+    static func sleep(for seconds: Double) async throws {
+        // Не зовём новый API, чтобы не пересекаться по имени.
+        try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
     }
 }

@@ -94,8 +94,8 @@ extension BluetoothLEManager {
             let id = register(newContinuation)
 
             newContinuation.onTermination = { [weak self] _ in
+                guard let self = self else { return }
                 Task {
-                    guard let self = self else { return }
                     await self.unregister(with: id)
                 }
             }
