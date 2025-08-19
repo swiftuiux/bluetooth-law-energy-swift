@@ -1,5 +1,5 @@
 # BLE Asynchronous Bluetooth Low Energy Kit
-### Please star the repository if you believe continuing the development of this package is worthwhile. This will help me understand which package deserves more effort.
+## ⭐ Star it — so I know it’s worth my time to keep improving it.
 
 [![](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fswiftuiux%2Fbluetooth-law-energy-swift%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/swiftuiux/bluetooth-law-energy-swift) [![](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fswiftuiux%2Fbluetooth-law-energy-swift%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/swiftuiux/bluetooth-law-energy-swift)
 
